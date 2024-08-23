@@ -39,7 +39,7 @@ void gcGui::FrontEnd() {
     UpdateWindowLocation();
     size_t xsize = 160;
     size_t ysize = 80;
-    ImGui::SetCursorPos(ImVec2(Gui::Size.x / 2 - xsize /1.75 , ysize * 2 / 1.6));
+    ImGui::SetCursorPos(ImVec2(Gui::Size.x / 2 - xsize / 1.75, ysize * 2 / 1.6));
 
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 5);
 
@@ -51,7 +51,7 @@ void gcGui::FrontEnd() {
         std::string folderPath2 = "0";
         folderPath2 = GetLocationXpac();
         if (folderPath2 == "0") {
-            
+
         } else {
             unpackreturn = xpac->Unpack(folderPath2.c_str());
 
@@ -64,6 +64,8 @@ void gcGui::FrontEnd() {
     constexpr int extraoff = 12;
     ImGui::SetCursorPos(ImVec2(extraoff, ysize * 2 / 1.6));
     ImGui::Text("Extras:");
+    ImGui::SetCursorPos(ImVec2(extraoff, ImGui::GetCursorPos().y));
+    ImGui::Checkbox("Unpack Zif Assets", &xpac->upAssetInfo);
     ImGui::SetCursorPos(ImVec2(extraoff, ImGui::GetCursorPos().y));
     ImGui::Checkbox("Unpack c Files", &xpac->upCompressedFiles);
     ImGui::SetCursorPos(ImVec2(extraoff, ImGui::GetCursorPos().y));
@@ -382,7 +384,7 @@ void gcGui::RenderBlur() {
 }
 
 void gcGui::initHWND() {
-    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandleA(NULL), NULL, NULL, NULL, NULL, name.c_str(), NULL};
+    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandleA(NULL), NULL, NULL, NULL, NULL, name.c_str(), NULL };
     ::RegisterClassEx(&wc);
     hwnd = ::CreateWindowEx(0, wc.lpszClassName, name.c_str(), WS_POPUP, (GetSystemMetrics(SM_CXSCREEN) / 2) - (Gui::Size.x / 2), (GetSystemMetrics(SM_CYSCREEN) / 2) - (Gui::Size.y / 2), Gui::Size.x, Gui::Size.y, NULL, NULL, wc.hInstance, NULL);
 

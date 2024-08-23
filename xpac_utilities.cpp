@@ -91,7 +91,11 @@ std::string EM::printAllTimes(const std::string &name) {
         totalTime += entry.second;
     }
 
-    return std::to_string((double)totalTime.count() / 1000000000) + " seconds!";
+    std::string returns = std::to_string((double)totalTime.count() / 1000000000) + " seconds!";
+
+    std::cout << returns << std::endl;
+
+    return returns;
 }
 
 std::string wts(const std::wstring& ws) {

@@ -48,11 +48,12 @@ std::string XPAC::Unpack(const char* xpacFileName) {
         std::string unhashn = "";
         try {
             unhashn = unhashmap[std::to_string(entries[i].dwHash)];
-        } Catchd {
+        } Catchd{
             unhashn = "";
         }
-        
+
         activeThreads++;
+        //std::cout << unhashn << std::endl;
         threads.emplace_back(&XPAC::DecompThreaded, this, fileData[i], entries[i], unhashn);
         threads.back().detach();
     }
@@ -68,7 +69,7 @@ std::string XPAC::Unpack(const char* xpacFileName) {
     while (activeThreads != 0) {
         Sleep(1);
     }
-     filename = *xu->folder + cFile.substr(0, cFile.length() - 1) + ".gpac";
+    filename = *xu->folder + cFile.substr(0, cFile.length() - 1) + ".gpac";
 
     uXPACEntry* uEntries = (uXPACEntry*)malloc(sizeof(uXPACEntry) * header.dwTotalFiles);
 
@@ -116,41 +117,114 @@ std::string XPAC::Unpack(const char* xpacFileName) {
     return em->printAllTimes(path(xpacFileName).filename().string());
 }
 
-//std::string XPAC::Repack(const char* gpacFileName) {
-//    //repack info function
-//    std::ifstream gpac2(gpacFileName, std::ios::in | std::ios::binary);
-//
-//    if (!gpac2.is_open()) {
-//        return "Error opening GPAC file for reading!";
-//    }
-//
-//    XPACHeader header;
-//    gpac2.read(reinterpret_cast<char*>(&header), sizeof(XPACHeader));
-//    uXPACEntry* uEntries = (uXPACEntry*)malloc(sizeof(uXPACEntry) * header.dwTotalFiles);
-//    gpac2.read(reinterpret_cast<char*>(uEntries), sizeof(uXPACEntry) * header.dwTotalFiles);
-//    gpac2.close();
-//    std::cout << "XPACHeader Members:\n";
-//    std::cout << "dwZero1: " << header.dwZero1 << std::endl;
-//    std::cout << "dwZero2: " << header.dwZero2 << std::endl;
-//    std::cout << "dwTableSize: " << header.dwTableSize << std::endl;
-//    std::cout << "dwTotalFiles: " << header.dwTotalFiles << std::endl;
-//    std::cout << "dwDirTable: " << header.dwDirTable << std::endl;
-//    std::cout << "dwZero3: " << header.dwZero3 << std::endl;
-//    std::cout << "------------------------\n";
-//
-//    for (size_t i = 0; i < header.dwTotalFiles; ++i) {
-//        std::cout << path(gpacFileName).filename().string() << " " << i + 1 << " Name: " << uEntries[i].dwName << std::endl;
-//        std::cout << " isCompressed: " << uEntries[i].isCompressed << std::endl;
-//        std::cout << " hasTextures: " << uEntries[i].hasTextures << std::endl;
-//        std::cout << " textures: " << uEntries[i].textures << std::endl;
-//        for (size_t j = 0; j < uEntries[i].textures; ++j) {
-//            std::cout << " textureOffsets[" << j << "]: " << uEntries[i].textureOffsets[j] << std::endl;
-//        }
-//    }
-//    free(uEntries);
-//
-//    return "";
-//}
+std::string XPAC::UnpackZifFirst(const char* xpacFileName) {
+    delete em;
+    em = new ExecutionMonitor();
+    em->start("f");
+
+    cFile = path(xpacFileName).filename().string();
+    cFile.erase(cFile.end() - 5, cFile.end());
+    cFile += '/';
+
+    std::string filename = *xu->folder + cFile.substr(0, cFile.length() - 1) + ".gpac";
+    std::ifstream xpacFile(xpacFileName, std::ios::in | std::ios::binary);
+
+    if (!xpacFile.is_open()) {
+        return "Error opening XPAC file!";
+    }
+
+    XPACHeader header;
+    xpacFile.read(reinterpret_cast<char*>(&header), sizeof(XPACHeader));
+
+    //std::vector<XPACEntry> entries(header.dwTotalFiles);
+    size_t s = sizeof(XPACEntry) * header.dwTotalFiles;
+    XPACEntry* entries = (XPACEntry*)malloc(s);
+    xpacFile.read(reinterpret_cast<char*>(entries), s);
+
+    int cdecomp = 0, cdds = 0;
+
+    std::vector<Bytef*> fileData;
+
+    size_t total = header.dwTotalFiles;
+    for (int i = 0; i < total; ++i) {
+
+        xpacFile.seekg(entries[i].dwOffset, std::ios::beg);
+        size_t csize = entries[i].dwCompressedSize;
+        //fileData.emplace_back((Bytef*)malloc(csize));
+        fileData.emplace_back(new Bytef[csize]);
+        xpacFile.read(reinterpret_cast<char*>(fileData[i]), csize);
+        std::string unhashn = "";
+        try {
+            unhashn = unhashmap[std::to_string(entries[i].dwHash)];
+        } Catchd{
+            unhashn = "";
+        }
+
+        activeThreads++;
+        std::cout << unhashn << std::endl;
+        threads.emplace_back(&XPAC::DecompThreaded, this, fileData[i], entries[i], unhashn);
+        threads.back().detach();
+    }
+
+    for (auto& thread : threads) {
+        if (thread.joinable()) {
+            thread.join();
+        }
+    }
+
+    em->toggle("f");
+
+    while (activeThreads != 0) {
+        Sleep(1);
+    }
+    filename = *xu->folder + cFile.substr(0, cFile.length() - 1) + ".gpac";
+
+    uXPACEntry* uEntries = (uXPACEntry*)malloc(sizeof(uXPACEntry) * header.dwTotalFiles);
+
+
+    std::ofstream gpac(filename, std::ios::out | std::ios::binary);
+
+    if (!gpac.is_open()) {
+        return "Error opening output GPAC file!";
+    }
+
+    gpac.write(reinterpret_cast<char*>(&header), sizeof(XPACHeader));
+
+    for (size_t i = 0; i < header.dwTotalFiles; ++i) {
+
+        uEntries[i].isCompressed = uisCompressed[entries[i].dwHash];
+
+        uEntries[i].hasTextures = uhasTextures[entries[i].dwHash];
+        uEntries[i].textures = utextures[entries[i].dwHash];
+        uEntries[i].textureOffsets = utextureOffsets[entries[i].dwHash];
+
+        uEntries[i].dwHash = entries[i].dwHash;
+        uEntries[i].dwOffset = entries[i].dwOffset;
+        uEntries[i].dwDecompressedSize = entries[i].dwDecompressedSize;
+        uEntries[i].dwCompressedSize = entries[i].dwCompressedSize;
+        uEntries[i].dwNull = entries[i].dwNull;
+
+        gpac.write(reinterpret_cast<char*>(&uEntries[i]), sizeof(uXPACEntry));
+
+        std::string nameofit = unhashmap[std::to_string(uEntries[i].dwHash)];
+
+        if (uEntries[i].hasTextures) {
+            for (int j = 0; j < uEntries[i].textures + 1; j++) {
+                gpac.write(reinterpret_cast<char*>(&uEntries[i].textureOffsets[j]), sizeof(uint32_t));
+            }
+        }
+
+    }
+
+    gpac.close();
+
+    free(uEntries);
+
+    xpacFile.close();
+    free(entries);
+    return em->printAllTimes(path(xpacFileName).filename().string());
+}
+
 
 std::string XPAC::Repack(const char* gpacFileName) {
     delete em;
@@ -186,11 +260,11 @@ std::string XPAC::Repack(const char* gpacFileName) {
     gpac2.close();
 
     for (size_t i = 0; i < header.dwTotalFiles; ++i) {
-        Entries[i].dwHash             = uEntries[i].dwHash;
-        Entries[i].dwOffset           = uEntries[i].dwOffset;
+        Entries[i].dwHash = uEntries[i].dwHash;
+        Entries[i].dwOffset = uEntries[i].dwOffset;
         Entries[i].dwDecompressedSize = uEntries[i].dwDecompressedSize;
-        Entries[i].dwCompressedSize   = uEntries[i].dwCompressedSize;
-        Entries[i].dwNull             = uEntries[i].dwNull;
+        Entries[i].dwCompressedSize = uEntries[i].dwCompressedSize;
+        Entries[i].dwNull = uEntries[i].dwNull;
     }
 
     std::ofstream xpac(*xu->folder + "\\out.xpac", std::ios::out | std::ios::binary);
@@ -200,7 +274,7 @@ std::string XPAC::Repack(const char* gpacFileName) {
     }
     xpac.write(reinterpret_cast<char*>(&header), sizeof(XPACHeader));
     xpac.write(reinterpret_cast<char*>(Entries), sizeof(XPACEntry) * header.dwTotalFiles);
-    
+
     for (size_t i = 0; i < header.dwTotalFiles; ++i) {
         std::string filePathS = *xu->folder;
         std::string uhn = repackString(Entries[i].dwHash);
@@ -211,7 +285,7 @@ std::string XPAC::Repack(const char* gpacFileName) {
         path decPath;
 
         if (uEntries[i].hasTextures) {
-            decPath = path(filePath.string().substr(0, filePath.string().length() - 4) + "_Textures\\" +  fname + "_dec.zig");
+            decPath = path(filePath.string().substr(0, filePath.string().length() - 4) + "_Textures\\" + fname + "_dec.zig");
             if (rpDDSFiles) {
                 if (!PackTextures(decPath, uEntries[i])) {
                     if (debug) {
@@ -279,7 +353,7 @@ bool XPAC::PackTextures(path filePath, const uXPACEntry& entry) {
     size_t firstoff = entry.textureOffsets[0];
 
     path par = filePath.parent_path();
-    
+
     for (int i = 0; i < entry.textures; i++) {
         std::string ddsname = par.string() + "\\" + std::to_string(i) + ".dds";
         std::ifstream dds(ddsname, std::ios::binary);
@@ -425,7 +499,7 @@ void XPAC::FindDDS(const std::vector<char>& data, std::vector<std::vector<char>>
         ddsArray.emplace_back(data.begin() + prevoffset, data.end());
 
         size_t sizet = ddsArray.size();
-        utextureOffsets[hash] = new uint32_t[sizet+1];
+        utextureOffsets[hash] = new uint32_t[sizet + 1];
 
         for (int i = 0; i < sizet; i++) {
             utextureOffsets[hash][i] = tracker[i];
@@ -433,6 +507,63 @@ void XPAC::FindDDS(const std::vector<char>& data, std::vector<std::vector<char>>
         utextureOffsets[hash][sizet] = data.size();
     }
 }
+
+void XPAC::extractZif(const std::vector<char>& data, std::string foldername) {
+    
+    uint32_t offset = 20;
+    std::vector<std::vector<char>> AssetInfoV;
+
+    if (offset + sizeof(uint32_t) <= data.size()) {
+        uint32_t amount;
+        std::memcpy(&amount, data.data() + offset, sizeof(uint32_t));
+        offset += 8;
+
+        uint32_t* pointers = new uint32_t[amount];
+        uint32_t* npointers = new uint32_t[amount];
+
+        for (int i = 0; i < amount; i++) {
+            std::memcpy(&npointers[i], data.data() + offset, sizeof(uint32_t));
+            npointers[i] += 20;
+            offset += 4;
+            std::memcpy(&pointers[i], data.data() + offset, sizeof(uint32_t));
+            pointers[i] += 20;
+
+            if (pointers[i] > data.size()) {
+                std::cout << "ERROR Extracting Zif! Begin Out of Bounds! index: " << i << " folder: " << foldername << std::endl;
+            }
+            offset += 12;
+        }
+
+        foldername += "\\";
+        create_directories(foldername);
+
+        for (int i = 0; i < amount; i++) {
+
+            std::string name;
+
+            char c = data[npointers[i]];
+            int j = 0;
+
+            while (c != 0 && (npointers[i] + ++j) < data.size()) {
+                name.push_back(c);
+                c = data[npointers[i] + j];
+            }
+
+            std::string filename = foldername + name;
+            std::ofstream outfile(filename, std::ios::binary);
+            if (i + 1 == amount) {
+                outfile.write(data.data() + pointers[i], data.size() - pointers[i]);
+            } else {
+                outfile.write(data.data() + pointers[i], pointers[i + 1] - pointers[i]);
+            }
+            outfile.close();
+        }
+
+        delete[] pointers;
+        delete[] npointers;
+    }
+}
+
 
 
 void XPAC::DecompThreaded(Bytef* cData, const XPACEntry entry, std::string name) {
@@ -476,8 +607,9 @@ void XPAC::DecompThreaded(Bytef* cData, const XPACEntry entry, std::string name)
                 of.write(reinterpret_cast<const char*>(cData), entry.dwDecompressedSize);
                 of.close();
             }
-            
+
         } else {
+            bool zifExtra = false;
             uhasTextures[entry.dwHash] = false;
             utextures[entry.dwHash] = false;
             utextureOffsets[entry.dwHash] = nullptr;
@@ -498,6 +630,9 @@ void XPAC::DecompThreaded(Bytef* cData, const XPACEntry entry, std::string name)
                     name.insert(nlen - 4, 1, 'd');
                     name.insert(nlen - 4, 1, '_');
                 }
+                if (upAssetInfo && name.substr(name.length() - 4) == ".zif") {
+                    zifExtra = true;
+                }
             } else {
                 std::stringstream ss;
                 ss << "Unknown/" << cFile << std::hex << entry.dwHash << ".bin" << std::dec;
@@ -506,6 +641,10 @@ void XPAC::DecompThreaded(Bytef* cData, const XPACEntry entry, std::string name)
             xu->FixFolder(name);
             name = xu->CreateFolders(name);
             xu->save(name, decomp);
+
+            if (zifExtra) {
+                extractZif(decomp, name.substr(0, name.length() - 8));
+            }
         }
         delete cData;
     } else {

@@ -5,7 +5,7 @@
 int main() {
 
     bool done = false;
-    gcGui gcg = gcGui("1.5", &done);
+    gcGui gcg = gcGui("1.6.1", &done);
 
     MSG msg;
     while (!done) {
