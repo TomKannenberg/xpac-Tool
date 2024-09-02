@@ -73,7 +73,7 @@ std::string XPAC::Unpack(const char* xpacFileName) {
         threads.back().detach();
 
         if (debug && i%(total/100) == 0) {
-            printPercent(((double)i / (double)total) * 100);
+            //printPercent(((double)i / (double)total) * 100);
             
         }
     }
@@ -146,7 +146,7 @@ std::string XPAC::Unpack(const char* xpacFileName) {
 
     xpacFile.close();
 
-    //free(entries); // TODO: IMPORTANT!: figure out why we can't deallocate entries, temporary memory leaks
+    free(entries);
     
     return em->printAllTimes(path(xpacFileName).filename().string());
 }
