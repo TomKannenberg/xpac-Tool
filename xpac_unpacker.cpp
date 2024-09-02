@@ -9,19 +9,10 @@ XPAC::~XPAC() {
     delete xu;
 }
 
-void checkflow(const bool &check) {
-    while (check) {
-        std::cout << "WHILE LOOP!" << std::endl;
-    }
-}
-
-
-
 std::string XPAC::Unpack(const char* xpacFileName) {
     if (debug) {
         std::cout << "Unpack XPAC" << std::endl;
     }
-    bool wloop = true;
     delete em;
     em = new ExecutionMonitor();
     em->start("f");
@@ -72,9 +63,10 @@ std::string XPAC::Unpack(const char* xpacFileName) {
         threads.emplace_back(&XPAC::DecompThreaded, this, fileData[i], entries[i], unhashn);
         threads.back().detach();
 
-        if (debug && i%(total/100) == 0) {
-            //printPercent(((double)i / (double)total) * 100);
-            
+        if (total > 99) {
+            if (debug && i % total == 0) {
+                printPercent(((double)i / (double)total) * 100);
+            }
         }
     }
 
@@ -95,13 +87,9 @@ std::string XPAC::Unpack(const char* xpacFileName) {
 
 
     std::thread thr;
-    if (debug) {
-        thr = std::thread(&checkflow, std::ref(wloop));
-    }
     while (activeThreads != 0) {
         Sleep(69);
     }
-    wloop = false;
     filename = *xu->folder + cFile.substr(0, cFile.length() - 1) + ".gpac";
 
     uXPACEntry* uEntries = (uXPACEntry*)malloc(sizeof(uXPACEntry) * header.dwTotalFiles);
