@@ -93,6 +93,8 @@ std::string EM::printAllTimes(const std::string &name) {
 
     std::string returns = std::to_string((double)totalTime.count() / 1000000000) + " seconds!";
 
+    printAllTimes();
+
     std::cout << returns << std::endl;
 
     return returns;

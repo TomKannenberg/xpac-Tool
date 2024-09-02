@@ -14,6 +14,7 @@
 #include <d3d9.h>
 #include <d3dx9.h>
 #include <wrl/client.h>
+#include <iomanip>
 
 #pragma comment (lib, "zlib.lib")
 
@@ -83,6 +84,8 @@ public:
 
 private:
     std::mutex mx;
+    std::mutex mxUM;
+    size_t ycpos = -1;
     size_t activeThreads = 0;
     std::unordered_map<std::string, std::string> unhashmap;
     std::vector<std::thread> threads;
@@ -105,9 +108,13 @@ private:
     bool Compress(std::vector<char>& input, std::vector<char>& compressedData);
 
     void CSaveThreaded(const std::vector<char>& data, std::string ddsFile) const;
+    void AddToUMaps(DWORD hash, uint32_t utextures, uint32_t utextureOffsets, bool uhasTextures, bool uisCompressed);
 
     std::string repackString(const DWORD hash);
     int Hash(const char* pString);
+    int getYCPos();
+    void setCPos(const int &y, const int &x);
+    void printPercent(const double &d);
 };
 
 HMODULE GCM();

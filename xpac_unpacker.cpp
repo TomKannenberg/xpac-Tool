@@ -9,7 +9,19 @@ XPAC::~XPAC() {
     delete xu;
 }
 
+void checkflow(const bool &check) {
+    while (check) {
+        std::cout << "WHILE LOOP!" << std::endl;
+    }
+}
+
+
+
 std::string XPAC::Unpack(const char* xpacFileName) {
+    if (debug) {
+        std::cout << "Unpack XPAC" << std::endl;
+    }
+    bool wloop = true;
     delete em;
     em = new ExecutionMonitor();
     em->start("f");
@@ -38,37 +50,58 @@ std::string XPAC::Unpack(const char* xpacFileName) {
     std::vector<Bytef*> fileData;
 
     size_t total = header.dwTotalFiles;
+    if (debug) {
+        std::cout << "Trying to open " << header.dwTotalFiles << " Files..." << std::endl;
+    }
     for (int i = 0; i < total; ++i) {
-
+        
         xpacFile.seekg(entries[i].dwOffset, std::ios::beg);
         size_t csize = entries[i].dwCompressedSize;
-        //fileData.emplace_back((Bytef*)malloc(csize));
-        fileData.emplace_back(new Bytef[csize]);
+        fileData.push_back(new Bytef[csize]);
         xpacFile.read(reinterpret_cast<char*>(fileData[i]), csize);
         std::string unhashn = "";
         try {
+            std::lock_guard<std::mutex> lock(mxUM);
             unhashn = unhashmap[std::to_string(entries[i].dwHash)];
         } Catchd{
+            std::lock_guard<std::mutex> lock(mxUM);
             unhashn = "";
         }
 
         activeThreads++;
-        //std::cout << unhashn << std::endl;
         threads.emplace_back(&XPAC::DecompThreaded, this, fileData[i], entries[i], unhashn);
         threads.back().detach();
+
+        if (debug && i%(total/100) == 0) {
+            printPercent(((double)i / (double)total) * 100);
+            
+        }
+    }
+
+    if (debug) {
+        std::cout << "Finished Unpacking MainThread" << std::endl;
     }
 
     for (auto& thread : threads) {
         if (thread.joinable()) {
             thread.join();
+            if (debug) {
+                std::cout << "Joined MainThread" << std::endl;
+            }
         }
     }
 
     em->toggle("f");
 
-    while (activeThreads != 0) {
-        Sleep(1);
+
+    std::thread thr;
+    if (debug) {
+        thr = std::thread(&checkflow, std::ref(wloop));
     }
+    while (activeThreads != 0) {
+        Sleep(69);
+    }
+    wloop = false;
     filename = *xu->folder + cFile.substr(0, cFile.length() - 1) + ".gpac";
 
     uXPACEntry* uEntries = (uXPACEntry*)malloc(sizeof(uXPACEntry) * header.dwTotalFiles);
@@ -105,15 +138,16 @@ std::string XPAC::Unpack(const char* xpacFileName) {
                 gpac.write(reinterpret_cast<char*>(&uEntries[i].textureOffsets[j]), sizeof(uint32_t));
             }
         }
-
     }
 
     gpac.close();
 
-    free(uEntries);
+    free(uEntries); 
 
     xpacFile.close();
-    free(entries);
+
+    //free(entries); // TODO: IMPORTANT!: figure out why we can't deallocate entries, temporary memory leaks
+    
     return em->printAllTimes(path(xpacFileName).filename().string());
 }
 
@@ -175,7 +209,7 @@ std::string XPAC::UnpackZifFirst(const char* xpacFileName) {
     em->toggle("f");
 
     while (activeThreads != 0) {
-        Sleep(1);
+        Sleep(5);
     }
     filename = *xu->folder + cFile.substr(0, cFile.length() - 1) + ".gpac";
 
@@ -648,10 +682,13 @@ void XPAC::DecompThreaded(Bytef* cData, const XPACEntry entry, std::string name)
         }
         delete cData;
     } else {
-        uisCompressed[entry.dwHash] = false;
-        uhasTextures[entry.dwHash] = false;
-        utextures[entry.dwHash] = false;
-        utextureOffsets[entry.dwHash] = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(mxUM);
+            uisCompressed[entry.dwHash] = false;
+            uhasTextures[entry.dwHash] = false;
+            utextures[entry.dwHash] = false;
+            utextureOffsets[entry.dwHash] = nullptr;
+        }
         if (name != "") {
             name.erase(name.begin(), name.begin() + 2);
         } else {
@@ -689,6 +726,56 @@ int XPAC::Hash(const char* pString) {
         dwHash = pStringByte + 131 * dwHash;
     }
     return dwHash;
+}
+
+int XPAC::getYCPos() {
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hConsole == INVALID_HANDLE_VALUE) {
+        std::cerr << "Error getting console handle." << std::endl;
+        return -1;
+    }
+
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    if (!GetConsoleScreenBufferInfo(hConsole, &csbi)) {
+        std::cerr << "Error getting console screen buffer info." << std::endl;
+        return -1;
+    }
+
+    int currentLine = csbi.dwCursorPosition.Y + 1;
+    return currentLine;
+}
+
+void XPAC::setCPos(const int& y, const int& x) {
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hConsole == INVALID_HANDLE_VALUE) {
+        std::cerr << "Error getting console handle." << std::endl;
+        return;
+    }
+
+    COORD position = { static_cast<SHORT>(x), static_cast<SHORT>(y) };
+    if (!SetConsoleCursorPosition(hConsole, position)) {
+        std::cerr << "Error setting console cursor position." << std::endl;
+    }
+}
+
+void XPAC::printPercent(const double& d) {
+    if (ycpos == -1) {
+        ycpos = getYCPos();
+    }
+    setCPos(ycpos, 0);
+    int ceil = std::ceil(d);
+    std::string pnum(std::to_string(ceil) + "%");
+
+    for (int i = 0; i < 3 - pnum.length(); i++) {
+        pnum = " " + pnum;
+    }
+    
+    std::cout << "Progress " << pnum << std::endl;
+
+    if (d > 99.5) {
+        ycpos = -1;
+    }
+    std::cout << ceil;
 }
 
 HMODULE GCM() {
