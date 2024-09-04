@@ -63,10 +63,8 @@ std::string XPAC::Unpack(const char* xpacFileName) {
         threads.emplace_back(&XPAC::DecompThreaded, this, fileData[i], entries[i], unhashn);
         threads.back().detach();
 
-        if (total > 99) {
-            if (debug && i % total == 0) {
-                printPercent(((double)i / (double)total) * 100);
-            }
+        if (total > 99 && debug && i%(total/100) == 0) {
+            printPercent(((double)i / (double)total) * 100);
         }
     }
 
@@ -77,9 +75,6 @@ std::string XPAC::Unpack(const char* xpacFileName) {
     for (auto& thread : threads) {
         if (thread.joinable()) {
             thread.join();
-            if (debug) {
-                std::cout << "Joined MainThread" << std::endl;
-            }
         }
     }
 
@@ -747,6 +742,7 @@ void XPAC::setCPos(const int& y, const int& x) {
 }
 
 void XPAC::printPercent(const double& d) {
+    std::cout << d << std::endl;
     if (ycpos == -1) {
         ycpos = getYCPos();
     }
@@ -754,16 +750,16 @@ void XPAC::printPercent(const double& d) {
     int ceil = std::ceil(d);
     std::string pnum(std::to_string(ceil) + "%");
 
-    for (int i = 0; i < 3 - pnum.length(); i++) {
+    for (signed int i = 0; i < 4 - pnum.length(); i++) {
         pnum = " " + pnum;
     }
     
     std::cout << "Progress " << pnum << std::endl;
 
-    if (d > 99.5) {
+    if (ceil == 100) {
+        std::cout << "RESET!!!" << std::endl;
         ycpos = -1;
     }
-    std::cout << ceil;
 }
 
 HMODULE GCM() {
