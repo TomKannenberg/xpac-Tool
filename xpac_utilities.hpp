@@ -1,19 +1,18 @@
-#include <iostream>
-#include <string>
-#define _SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING
-#include <experimental/filesystem>
-#include <unordered_map>
-#include <ShlObj.h>
-#include <Commdlg.h>
+#include <chrono>
+#include <filesystem>
 #include <fstream>
-#include <zlib.h>
-#include <thread>
+#include <iostream>
 #include <numeric>
+#include <string>
+#include <thread>
+#include <unordered_map>
+#include <vector>
+#include <zlib.h>
 
 #define EM ExecutionMonitor
 #define XU XPACUtility
 
-using namespace std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 class ExecutionMonitor {
 private:
@@ -39,7 +38,7 @@ class XPACUtility {
 
         const std::string* folder;
         
-        void FixFolder(std::string &path);
+        void FixFolder(std::string& path);
         std::string CreateFolders(std::string filePath);
         void CreateFolder(const std::string& folderPath);
 

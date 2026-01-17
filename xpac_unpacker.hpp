@@ -4,24 +4,27 @@
 #define Catchd catch(exc) 
 
 #include <algorithm>
-#include <conio.h>
-#include <sstream>
-#include <vector>
 #include <chrono>
-#include <mutex>
-#include <Windows.h>
-//#include <wincodec.h>
-#include <d3d9.h>
-#include <d3dx9.h>
-#include <wrl/client.h>
+#include <cmath>
+#include <cctype>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
+#include <iostream>
+#include <mutex>
+#include <sstream>
+#include <string>
+#include <thread>
+#include <vector>
+#include <unordered_map>
 
-#pragma comment (lib, "zlib.lib")
+#include <zlib.h>
 
-#include "resource.h"
 #include "xpac_utilities.hpp"
 
-using namespace std::experimental::filesystem;
+namespace fs = std::filesystem;
+using fs::path;
 
 struct Zif {
     uint32_t size;
@@ -32,6 +35,8 @@ struct Zif {
 struct Zig {
     uint32_t size;
 };
+
+using DWORD = uint32_t;
 
 struct XPACHeader {
     DWORD dwZero1;
@@ -108,16 +113,10 @@ private:
     bool Compress(std::vector<char>& input, std::vector<char>& compressedData);
 
     void CSaveThreaded(const std::vector<char>& data, std::string ddsFile) const;
-    void AddToUMaps(DWORD hash, uint32_t utextures, uint32_t utextureOffsets, bool uhasTextures, bool uisCompressed);
-
     std::string repackString(const DWORD hash);
     int Hash(const char* pString);
-    int getYCPos();
-    void setCPos(const int &y, const int &x);
     void printPercent(const double &d);
 };
-
-HMODULE GCM();
 
 //std::string XPAC::Repack(const char* gpacFileName) {
 //    //repack info function

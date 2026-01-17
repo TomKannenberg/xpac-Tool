@@ -81,9 +81,8 @@ std::string XPAC::Unpack(const char* xpacFileName) {
     em->toggle("f");
 
 
-    std::thread thr;
     while (activeThreads != 0) {
-        Sleep(69);
+        std::this_thread::sleep_for(std::chrono::milliseconds(69));
     }
     filename = *xu->folder + cFile.substr(0, cFile.length() - 1) + ".gpac";
 
@@ -192,7 +191,7 @@ std::string XPAC::UnpackZifFirst(const char* xpacFileName) {
     em->toggle("f");
 
     while (activeThreads != 0) {
-        Sleep(5);
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     filename = *xu->folder + cFile.substr(0, cFile.length() - 1) + ".gpac";
 
@@ -284,7 +283,7 @@ std::string XPAC::Repack(const char* gpacFileName) {
         Entries[i].dwNull = uEntries[i].dwNull;
     }
 
-    std::ofstream xpac(*xu->folder + "\\out.xpac", std::ios::out | std::ios::binary);
+    std::ofstream xpac(*xu->folder + "/out.xpac", std::ios::out | std::ios::binary);
     if (!xpac.is_open()) {
         "Error opening XPAC file for writing!";
         return "Error opening XPAC file for writing!";
@@ -302,7 +301,7 @@ std::string XPAC::Repack(const char* gpacFileName) {
         path decPath;
 
         if (uEntries[i].hasTextures) {
-            decPath = path(filePath.string().substr(0, filePath.string().length() - 4) + "_Textures\\" + fname + "_dec.zig");
+            decPath = path(filePath.string().substr(0, filePath.string().length() - 4) + "_Textures/" + fname + "_dec.zig");
             if (rpDDSFiles) {
                 if (!PackTextures(decPath, uEntries[i])) {
                     if (debug) {
@@ -311,7 +310,7 @@ std::string XPAC::Repack(const char* gpacFileName) {
                     return std::string(uhn) + " didn't Repack as Expected...";
                 }
             }
-            filePath = path(filePath.string().substr(0, filePath.string().length() - 4) + "_Textures\\" + fname + "_c.zig");
+            filePath = path(filePath.string().substr(0, filePath.string().length() - 4) + "_Textures/" + fname + "_c.zig");
         } else {
             decPath = path(filePath.string().substr(0, filePath.string().length() - 4) + "_dec" + filePath.string().substr(filePath.string().length() - 4));
             filePath = path(filePath.string().substr(0, filePath.string().length() - 4) + "_c" + filePath.string().substr(filePath.string().length() - 4));
@@ -372,7 +371,7 @@ bool XPAC::PackTextures(path filePath, const uXPACEntry& entry) {
     path par = filePath.parent_path();
 
     for (int i = 0; i < entry.textures; i++) {
-        std::string ddsname = par.string() + "\\" + std::to_string(i) + ".dds";
+        std::string ddsname = par.string() + "/" + std::to_string(i) + ".dds";
         std::ifstream dds(ddsname, std::ios::binary);
         size_t begindds = entry.textureOffsets[i];
         size_t enddds = entry.textureOffsets[i + 1];
@@ -516,12 +515,17 @@ void XPAC::FindDDS(const std::vector<char>& data, std::vector<std::vector<char>>
         ddsArray.emplace_back(data.begin() + prevoffset, data.end());
 
         size_t sizet = ddsArray.size();
-        utextureOffsets[hash] = new uint32_t[sizet + 1];
+        uint32_t* offsets = new uint32_t[sizet + 1];
 
-        for (int i = 0; i < sizet; i++) {
-            utextureOffsets[hash][i] = tracker[i];
+        for (size_t i = 0; i < sizet; i++) {
+            offsets[i] = tracker[i];
         }
-        utextureOffsets[hash][sizet] = data.size();
+        offsets[sizet] = data.size();
+
+        {
+            std::lock_guard<std::mutex> lock(mxUM);
+            utextureOffsets[hash] = offsets;
+        }
     }
 }
 
@@ -534,6 +538,14 @@ void XPAC::extractZif(const std::vector<char>& data, std::string foldername) {
         uint32_t amount;
         std::memcpy(&amount, data.data() + offset, sizeof(uint32_t));
         offset += 8;
+
+        const size_t entrySize = 20;
+        size_t remainingBytes = data.size() > offset ? data.size() - offset : 0;
+        size_t maxEntries = remainingBytes / entrySize;
+        if (maxEntries < amount) {
+            std::cerr << "ERROR Extracting Zif! Truncating " << amount << " entries to " << maxEntries << " because asset info is too small\n";
+            amount = static_cast<uint32_t>(maxEntries);
+        }
 
         uint32_t* pointers = new uint32_t[amount];
         uint32_t* npointers = new uint32_t[amount];
@@ -551,12 +563,17 @@ void XPAC::extractZif(const std::vector<char>& data, std::string foldername) {
             offset += 12;
         }
 
-        foldername += "\\";
-        create_directories(foldername);
+        foldername += "/";
+        fs::create_directories(foldername);
 
         for (int i = 0; i < amount; i++) {
 
             std::string name;
+
+            if (npointers[i] >= data.size()) {
+                std::cerr << "ERROR Extracting Zif! Name pointer out of range index: " << i << " folder: " << foldername << std::endl;
+                continue;
+            }
 
             char c = data[npointers[i]];
             int j = 0;
@@ -568,11 +585,16 @@ void XPAC::extractZif(const std::vector<char>& data, std::string foldername) {
 
             std::string filename = foldername + name;
             std::ofstream outfile(filename, std::ios::binary);
-            if (i + 1 == amount) {
-                outfile.write(data.data() + pointers[i], data.size() - pointers[i]);
-            } else {
-                outfile.write(data.data() + pointers[i], pointers[i + 1] - pointers[i]);
+            if (pointers[i] >= data.size()) {
+                outfile.close();
+                continue;
             }
+
+            size_t endOffset = data.size();
+            if (i + 1 != amount && pointers[i + 1] > pointers[i]) {
+                endOffset = std::min<size_t>(pointers[i + 1], data.size());
+            }
+            outfile.write(data.data() + pointers[i], endOffset - pointers[i]);
             outfile.close();
         }
 
@@ -586,15 +608,21 @@ void XPAC::extractZif(const std::vector<char>& data, std::string foldername) {
 void XPAC::DecompThreaded(Bytef* cData, const XPACEntry entry, std::string name) {
     std::vector<char> decomp;
     if (Decompress(cData, entry.dwDecompressedSize, decomp)) {
-        uisCompressed[entry.dwHash] = true;
-
         std::vector<std::vector<char>> holdDDS;
         FindDDS(decomp, holdDDS, entry.dwHash);
 
-        if (!holdDDS.empty()) {
-            uhasTextures[entry.dwHash] = true;
-            utextures[entry.dwHash] = holdDDS.size();
+        const bool hasTextures = !holdDDS.empty();
+        {
+            std::lock_guard<std::mutex> lock(mxUM);
+            uisCompressed[entry.dwHash] = true;
+            uhasTextures[entry.dwHash] = hasTextures;
+            utextures[entry.dwHash] = static_cast<uint32_t>(holdDDS.size());
+            if (!hasTextures) {
+                utextureOffsets[entry.dwHash] = nullptr;
+            }
+        }
 
+        if (hasTextures) {
             std::string filename = "";
             if (name != "") {
                 filename = path(name).filename().string();
@@ -611,7 +639,7 @@ void XPAC::DecompThreaded(Bytef* cData, const XPACEntry entry, std::string name)
             name.erase(name.end() - 4, name.end());
             name += "_Textures";
             xu->CreateFolder(name);
-            name += "\\";
+            name += "/";
             int j = 0;
             for (auto it = holdDDS.begin(); it < holdDDS.end(); it++) {
                 std::string outputFileName = name + std::to_string(j) + ".dds";
@@ -627,9 +655,6 @@ void XPAC::DecompThreaded(Bytef* cData, const XPACEntry entry, std::string name)
 
         } else {
             bool zifExtra = false;
-            uhasTextures[entry.dwHash] = false;
-            utextures[entry.dwHash] = false;
-            utextureOffsets[entry.dwHash] = nullptr;
             if (name != "") {
                 name.erase(name.begin(), name.begin() + 2);
                 size_t nlen = name.length();
@@ -663,7 +688,7 @@ void XPAC::DecompThreaded(Bytef* cData, const XPACEntry entry, std::string name)
                 extractZif(decomp, name.substr(0, name.length() - 8));
             }
         }
-        delete cData;
+        delete[] cData;
     } else {
         {
             std::lock_guard<std::mutex> lock(mxUM);
@@ -684,7 +709,7 @@ void XPAC::DecompThreaded(Bytef* cData, const XPACEntry entry, std::string name)
         std::ofstream of(name, std::ios::binary);
         of.write(reinterpret_cast<const char*>(cData), entry.dwDecompressedSize);
         of.close();
-        delete cData;
+        delete[] cData;
     }
     {
         std::lock_guard<std::mutex> lock(mx);
@@ -709,67 +734,6 @@ int XPAC::Hash(const char* pString) {
         dwHash = pStringByte + 131 * dwHash;
     }
     return dwHash;
-}
-
-int XPAC::getYCPos() {
-    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (hConsole == INVALID_HANDLE_VALUE) {
-        std::cerr << "Error getting console handle." << std::endl;
-        return -1;
-    }
-
-    CONSOLE_SCREEN_BUFFER_INFO csbi;
-    if (!GetConsoleScreenBufferInfo(hConsole, &csbi)) {
-        std::cerr << "Error getting console screen buffer info." << std::endl;
-        return -1;
-    }
-
-    int currentLine = csbi.dwCursorPosition.Y + 1;
-    return currentLine;
-}
-
-void XPAC::setCPos(const int& y, const int& x) {
-    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (hConsole == INVALID_HANDLE_VALUE) {
-        std::cerr << "Error getting console handle." << std::endl;
-        return;
-    }
-
-    COORD position = { static_cast<SHORT>(x), static_cast<SHORT>(y) };
-    if (!SetConsoleCursorPosition(hConsole, position)) {
-        std::cerr << "Error setting console cursor position." << std::endl;
-    }
-}
-
-void XPAC::printPercent(const double& d) {
-    std::cout << d << std::endl;
-    if (ycpos == -1) {
-        ycpos = getYCPos();
-    }
-    setCPos(ycpos, 0);
-    int ceil = std::ceil(d);
-    std::string pnum(std::to_string(ceil) + "%");
-
-    for (signed int i = 0; i < 4 - pnum.length(); i++) {
-        pnum = " " + pnum;
-    }
-    
-    std::cout << "Progress " << pnum << std::endl;
-
-    if (ceil == 100) {
-        std::cout << "RESET!!!" << std::endl;
-        ycpos = -1;
-    }
-}
-
-HMODULE GCM() {
-    HMODULE hm = NULL;
-    GetModuleHandleEx(
-        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-        (LPCTSTR)GCM,
-        &hm
-    );
-    return hm;
 }
 
 std::string XPAC::repackString(const DWORD hash) {
@@ -801,34 +765,34 @@ std::string XPAC::repackString(const DWORD hash) {
     }
 }
 
+void XPAC::printPercent(const double& d) {
+    std::cout << "Progress: " << static_cast<int>(std::ceil(d)) << "%\n";
+}
+
 void XPAC::loadUnHasher() {
 
-    std::string mapfile;
-    HRSRC hr = FindResource(GCM(), MAKEINTRESOURCE(GCTEXT), MAKEINTRESOURCE(TEXTFILE));
-    HGLOBAL hd = LoadResource(GCM(), hr);
-    DWORD hs = SizeofResource(GCM(), hr);
-    char* hf = (char*)LockResource(hd);
-    mapfile.assign(hf, hs);
+    fs::path mappingPath = fs::current_path() / "MAPPING.GC";
+    if (!fs::exists(mappingPath)) {
+        return;
+    }
 
-    std::string f = "", s = "";
+    std::ifstream mapfile(mappingPath);
+    if (!mapfile.is_open()) {
+        return;
+    }
 
-    std::string* c = &f;
-
-    unhashmap;
-
-
-    for (auto it = mapfile.begin(); it < mapfile.end(); it++) {
-        if (*it == '\n') {
+    std::string line;
+    while (std::getline(mapfile, line)) {
+        if (line.empty()) {
             continue;
         }
-        if (*it == ':') {
-            c = &s;
-        } else if (*it == ';') {
-            unhashmap[f] = s;
-            f = "", s = "";
-            c = &f;
-        } else {
-            c->push_back(*it);
+        auto colon = line.find(':');
+        auto semi = line.find(';', colon != std::string::npos ? colon + 1 : 0);
+        if (colon == std::string::npos || semi == std::string::npos) {
+            continue;
         }
+        std::string key = line.substr(0, colon);
+        std::string value = line.substr(colon + 1, semi - colon - 1);
+        unhashmap[key] = value;
     }
 }
